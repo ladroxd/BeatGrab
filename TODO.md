@@ -18,6 +18,15 @@ have not been confirmed in everyday use.
       Playlist.
 - [ ] Windows notification appears on screen on save and on failure.
 
+## Repo
+
+- [ ] Choose a license and add a `LICENSE` file (the README has no License
+      section until then).
+- [ ] Add a screenshot of the "Send to FL" button on a watch page to the
+      README.
+- [ ] Publish a release with a zip, and point the README's download button
+      at it instead of the `main` branch zip.
+
 ## Ideas
 
 - [ ] Put BPM and key in the filename when the title doesn't already have

@@ -2,6 +2,18 @@
 
 All notable changes to BeatGrab. Newest first.
 
+## Docs - 2026-11-16
+
+### Added
+- `README.md` for GitHub: icon, download button, screenshot of the toolbar
+  window, features, requirements, getting started, how it works and what is
+  stored.
+- `assets/popup.png`, a screenshot of the toolbar window with sample data.
+
+### Changed
+- The old `README.txt` moved to `docs/SETUP.md` as the full setup, usage and
+  troubleshooting guide.
+
 ## 1.6 - 2026-11-16
 
 ### Added
