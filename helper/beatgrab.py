@@ -1,0 +1,363 @@
+#!/usr/bin/env python3
+"""BeatGrab helper: receives a YouTube link from the Chrome extension,
+downloads it as MP3 into your BeatGrab folder, and shows the file so you can
+drag it into FL Studio.
+
+Needs:  pip install -U "yt-dlp[default]"   and   ffmpeg + Node.js (or Deno) on PATH.
+Run:    python beatgrab.py
+"""
+import json
+import os
+import platform
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+PORT = int(os.environ.get("BEATGRAB_PORT", "9835"))
+CONFIG_FILE = Path(os.environ.get("APPDATA", Path.home())) / "BeatGrab" / "config.json"
+
+
+def load_out_dir():
+    """Folder picked in the extension popup, else BEATGRAB_DIR, else ~/Music/BeatGrab."""
+    try:
+        folder = json.loads(CONFIG_FILE.read_text(encoding="utf-8")).get("folder")
+        if folder and Path(folder).is_absolute():
+            return Path(folder)
+    except (OSError, ValueError, AttributeError):
+        pass
+    return Path(os.environ.get("BEATGRAB_DIR", Path.home() / "Music" / "BeatGrab"))
+
+
+OUT_DIR = load_out_dir()
+PICKER_LOCK = threading.Lock()
+# Runs in its own process so the dialog gets a proper main thread.
+PICKER_SCRIPT = """
+import sys, tkinter
+from tkinter import filedialog
+root = tkinter.Tk()
+root.withdraw()
+root.attributes("-topmost", True)
+root.update()
+chosen = filedialog.askdirectory(parent=root, initialdir=sys.argv[1], mustexist=False,
+                                 title="BeatGrab: where should beats be saved?")
+sys.stdout.buffer.write(chosen.encode("utf-8"))
+"""
+
+
+def pick_folder():
+    """Show the Windows folder picker and remember the choice. Returns the folder in use."""
+    global OUT_DIR
+    if not PICKER_LOCK.acquire(blocking=False):
+        raise RuntimeError("The folder window is already open (check your taskbar).")
+    try:
+        start = OUT_DIR if OUT_DIR.is_dir() else Path.home()
+        proc = subprocess.run([sys.executable, "-c", PICKER_SCRIPT, str(start)], capture_output=True)
+        chosen = proc.stdout.decode("utf-8", "replace").strip()
+        if proc.returncode != 0:
+            raise RuntimeError("Could not open the folder window.")
+        if chosen:  # empty = cancelled
+            folder = Path(chosen).resolve()
+            folder.mkdir(parents=True, exist_ok=True)
+            CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            CONFIG_FILE.write_text(json.dumps({"folder": str(folder)}), encoding="utf-8")
+            OUT_DIR = folder
+            print("Save folder is now:", folder)
+        return OUT_DIR
+    finally:
+        PICKER_LOCK.release()
+REVEAL = os.environ.get("BEATGRAB_REVEAL", "1") != "0"
+YT_HOSTS = {"www.youtube.com", "youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
+MAX_JOBS = 50
+
+JOBS = {}  # job id -> {"state": "working" | "done" | "error", "file": str, "error": str}
+JOBS_LOCK = threading.Lock()
+
+
+def clean_url(raw):
+    """Return a canonical watch URL, or None if this isn't a single YouTube video."""
+    try:
+        u = urlparse(raw)
+    except Exception:
+        return None
+    if u.scheme not in ("http", "https") or u.hostname not in YT_HOSTS:
+        return None
+    if u.hostname == "youtu.be":
+        vid = u.path.strip("/")
+    elif u.path == "/watch":
+        vid = parse_qs(u.query).get("v", [""])[0]
+    elif u.path.startswith("/shorts/"):
+        vid = u.path.split("/")[2] if len(u.path.split("/")) > 2 else ""
+    else:
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", vid):
+        return None
+    return f"https://www.youtube.com/watch?v={vid}"
+
+
+def js_runtime_args():
+    """yt-dlp needs a JavaScript runtime for YouTube. Deno is picked up on its
+    own; Node has to be enabled explicitly."""
+    if shutil.which("deno"):
+        return []
+    if shutil.which("node"):
+        return ["--js-runtimes", "node"]
+    return []
+
+
+def reveal(path):
+    """Open the folder with the file selected, so it's ready to drag."""
+    try:
+        system = platform.system()
+        if system == "Windows":
+            # Explorer only accepts quotes around the path itself, not around the
+            # whole "/select,..." argument, so build the command line by hand.
+            # (No shell involved, and Windows filenames can't contain quotes.)
+            subprocess.Popen(f'explorer /select,"{Path(path).resolve()}"')
+        elif system == "Darwin":
+            subprocess.Popen(["open", "-R", str(path)])
+        else:
+            subprocess.Popen(["xdg-open", str(Path(path).parent)])
+    except Exception:
+        pass
+
+
+BPM_PATTERNS = [
+    re.compile(r"(?<![\d.])(\d{2,3})(?:\.\d+)?\s*-?\s*(?i:bpm)\b"),      # "129 BPM"
+    re.compile(r"\b(?i:bpm)\s*[:\-–=]?\s*(\d{2,3})(?![\d])"),            # "BPM: 129"
+]
+_ACC = r"([#b♯♭]|\s?(?i:sharp|flat))?"
+_MODE = r"((?i:major|minor|maj|min))"
+KEY_PATTERNS = [
+    # "Key: F#m", "key of C", "KEY - Bb minor"
+    re.compile(r"\b(?i:key)\b\s*[:\-–=]?\s*(?:(?i:of)\s+)?([A-G])" + _ACC + r"\s*-?\s*((?i:major|minor|maj|min)|m)?(?![A-Za-z])"),
+    # "F# minor", "C Major", "Amin"
+    re.compile(r"(?<![A-Za-z])([A-G])" + _ACC + r"\s*-?\s*" + _MODE + r"(?![A-Za-z])"),
+    # "F#m", "Cm" ("Am" only when it isn't the word in "I Am")
+    re.compile(r"(?<![A-Za-z#])(?<!I )([A-G])([#b♯♭])?(m)(?![A-Za-z#])"),
+]
+
+
+def find_bpm(text):
+    for pattern in BPM_PATTERNS:
+        for m in pattern.finditer(text):
+            if 40 <= int(m.group(1)) <= 300:
+                return int(m.group(1))
+    return None
+
+
+def find_key(text):
+    for pattern in KEY_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            acc = (m.group(2) or "").strip().lower()
+            acc = {"♯": "#", "sharp": "#", "♭": "b", "flat": "b"}.get(acc, acc)
+            mode = (m.group(3) or "").lower()
+            minor = mode == "m" or mode.startswith("min")
+            return f"{m.group(1)}{acc} {'minor' if minor else 'major'}"
+    return None
+
+
+def beat_details(title, description, tags):
+    """BPM and key as the uploader wrote them: the title wins, then the description/tags."""
+    rest = f"{description}\n{' '.join(tags)}"
+    return {
+        "bpm": find_bpm(title) or find_bpm(rest),
+        "key": find_key(title) or find_key(rest),
+    }
+
+
+INFO_CACHE = {}  # url -> info dict
+
+
+def info(url):
+    """Title, uploader, length, BPM and key for a video, without downloading it."""
+    if url in INFO_CACHE:
+        return INFO_CACHE[url]
+    cmd = [
+        sys.executable, "-m", "yt_dlp",
+        *js_runtime_args(),
+        "--no-playlist", "--skip-download", "--no-warnings", "--dump-single-json",
+        url,
+    ]
+    env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    proc = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace", env=env)
+    if proc.returncode != 0:
+        lines = (proc.stderr or proc.stdout).strip().splitlines()
+        errors = [l for l in lines if l.startswith("ERROR")] or lines[-2:]
+        raise RuntimeError(" | ".join(errors) or "yt-dlp failed")
+    data = json.loads(proc.stdout)
+    title = str(data.get("title") or "")
+    result = {
+        "title": title,
+        "uploader": str(data.get("uploader") or data.get("channel") or ""),
+        "duration": data.get("duration"),
+        **beat_details(title, str(data.get("description") or ""), [str(t) for t in data.get("tags") or []]),
+    }
+    if len(INFO_CACHE) >= MAX_JOBS:
+        INFO_CACHE.pop(next(iter(INFO_CACHE)))
+    INFO_CACHE[url] = result
+    return result
+
+
+def grab(url, fmt="mp3"):
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    if fmt == "wav":
+        # WAV can't hold cover art, so no thumbnail there.
+        audio_args = ["-x", "--audio-format", "wav", "--embed-metadata"]
+    else:
+        audio_args = ["-x", "--audio-format", "mp3", "--audio-quality", "0",
+                      "--embed-metadata", "--embed-thumbnail"]
+    cmd = [
+        sys.executable, "-m", "yt_dlp",
+        *js_runtime_args(),
+        *audio_args,
+        "--no-playlist", "--windows-filenames",
+        "--no-simulate", "--print", "after_move:filepath",
+        "-o", str(OUT_DIR / "%(title).150B.%(ext)s"),
+        url,
+    ]
+    # Force UTF-8 so titles with accents/emoji come back as a usable path.
+    env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    proc = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace", env=env)
+    if proc.returncode != 0:
+        lines = (proc.stderr or proc.stdout).strip().splitlines()
+        errors = [l for l in lines if l.startswith("ERROR")] or lines[-2:]
+        raise RuntimeError(" | ".join(errors) or "yt-dlp failed")
+    lines = [l for l in proc.stdout.strip().splitlines() if l.strip()]
+    if not lines:
+        raise RuntimeError("yt-dlp finished but returned no file path")
+    path = Path(lines[-1])
+    if not path.is_file():
+        raise RuntimeError(f"yt-dlp reported a file that isn't there: {path}")
+    return path
+
+
+def run_job(job_id, url, fmt):
+    try:
+        path = grab(url, fmt)
+    except Exception as e:
+        print("FAILED:", e)
+        result = {"state": "error", "error": str(e)}
+    else:
+        print("Saved:", path)
+        if REVEAL:
+            reveal(path)
+        result = {"state": "done", "file": str(path)}
+    with JOBS_LOCK:
+        JOBS[job_id] = result
+
+
+def start_job(url, fmt):
+    job_id = uuid.uuid4().hex
+    with JOBS_LOCK:
+        while len(JOBS) >= MAX_JOBS:  # forget the oldest jobs
+            JOBS.pop(next(iter(JOBS)))
+        JOBS[job_id] = {"state": "working"}
+    threading.Thread(target=run_job, args=(job_id, url, fmt), daemon=True).start()
+    return job_id
+
+
+class Handler(BaseHTTPRequestHandler):
+    def _send(self, code, payload):
+        body = json.dumps(payload).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _allowed(self, need_origin):
+        """Only our extension may talk to us (blocks random websites). The custom
+        header can't be sent cross-origin by a web page without a CORS preflight,
+        which we never answer."""
+        if self.headers.get("X-BeatGrab") != "1":
+            return False
+        origin = self.headers.get("Origin", "")
+        if need_origin or origin:
+            return origin.startswith("chrome-extension://")
+        return True
+
+    def do_GET(self):
+        u = urlparse(self.path)
+        if u.path == "/ping":
+            return self._send(200, {"ok": True, "folder": str(OUT_DIR)})
+        if u.path == "/status":
+            if not self._allowed(need_origin=False):
+                return self._send(403, {"error": "forbidden"})
+            job_id = parse_qs(u.query).get("job", [""])[0]
+            with JOBS_LOCK:
+                job = JOBS.get(job_id)
+            if job is None:
+                return self._send(404, {"error": "unknown job (helper restarted?)"})
+            return self._send(200, job)
+        if u.path == "/info":
+            if not self._allowed(need_origin=False):
+                return self._send(403, {"error": "forbidden"})
+            url = clean_url(parse_qs(u.query).get("url", [""])[0])
+            if not url:
+                return self._send(400, {"error": "open a single YouTube video first"})
+            try:
+                return self._send(200, info(url))
+            except Exception as e:
+                return self._send(500, {"error": str(e)})
+        self._send(404, {"error": "not found"})
+
+    def do_POST(self):
+        if not self._allowed(need_origin=True):
+            return self._send(403, {"error": "forbidden"})
+        if self.path == "/pick-folder":
+            # The folder can only be chosen by a person in a real Windows dialog,
+            # never set to an arbitrary path by a request.
+            try:
+                return self._send(200, {"ok": True, "folder": str(pick_folder())})
+            except Exception as e:
+                return self._send(500, {"error": str(e)})
+        if self.path != "/grab":
+            return self._send(404, {"error": "not found"})
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            data = json.loads(self.rfile.read(min(length, 10_000)) or b"{}")
+        except Exception:
+            return self._send(400, {"error": "bad request"})
+        if not isinstance(data, dict):
+            return self._send(400, {"error": "bad request"})
+        url = clean_url(str(data.get("url", "")))
+        if not url:
+            return self._send(400, {"error": "open a single YouTube video first"})
+        fmt = "wav" if data.get("format") == "wav" else "mp3"
+        self._send(202, {"ok": True, "job": start_job(url, fmt)})
+
+    def log_message(self, *a):
+        pass
+
+
+def check_setup():
+    try:
+        import yt_dlp  # noqa: F401
+    except ImportError:
+        print('WARNING: yt-dlp is not installed. Run:  pip install -U "yt-dlp[default]"')
+    if not shutil.which("ffmpeg"):
+        print("WARNING: ffmpeg is not on PATH. Run:  winget install ffmpeg  (then reopen this window)")
+    if not (shutil.which("deno") or shutil.which("node")):
+        print("WARNING: no Node.js or Deno found. YouTube downloads may fail. Run:  winget install OpenJS.NodeJS.LTS")
+
+
+if __name__ == "__main__":
+    check_setup()
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    except OSError:
+        sys.exit(f"Port {PORT} is busy. BeatGrab is probably already running.")
+    print(f"BeatGrab helper running on http://127.0.0.1:{PORT}")
+    print(f"MP3s go to: {OUT_DIR}")
+    print("Leave this window open. Ctrl+C to stop.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass

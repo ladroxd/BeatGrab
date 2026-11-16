@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "BeatGrab",
+  "version": "1.6",
+  "description": "One click: grab the YouTube beat you're on as an MP3.",
+  "permissions": ["activeTab", "notifications", "storage"],
+  "host_permissions": ["http://127.0.0.1:9835/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    { "resources": ["fl.png"], "matches": ["https://www.youtube.com/*"] }
+  ],
+  "icons": { "128": "icon128.png" },
+  "action": {
+    "default_title": "BeatGrab",
+    "default_popup": "popup.html",
+    "default_icon": { "128": "icon128.png" }
+  },
+  "commands": {
+    "grab": {
+      "suggested_key": { "default": "Alt+Shift+G" },
+      "description": "Grab this beat as MP3"
+    }
+  }
+}

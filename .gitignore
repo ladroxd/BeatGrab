@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+
+# Your own button image (optional, see README)
+extension/fl.png
+
+# Downloaded audio should never end up in the repo
+*.mp3
+*.wav

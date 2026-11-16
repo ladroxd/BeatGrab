@@ -1,0 +1,41 @@
+# TODO
+
+## To verify by hand
+
+These work in automated runs (headless Chromium plus the real helper) but
+have not been confirmed in everyday use.
+
+- [ ] Toolbar window opened from the real toolbar icon in Chrome.
+- [ ] "Change folder": pick a folder in the Windows dialog, then send a beat
+      and check it lands there.
+- [ ] Helper auto-starts hidden after a Windows restart.
+- [ ] In-page "Send to FL" button position when signed in, and in dark mode.
+- [ ] BPM and key on a range of real beat uploads (so far checked against
+      sample titles and descriptions only).
+- [ ] A long video (10 minutes or more) downloads without the extension
+      losing track of it.
+- [ ] WAV and MP3 files show up in the FL Studio Browser and drag into the
+      Playlist.
+- [ ] Windows notification appears on screen on save and on failure.
+
+## Ideas
+
+- [ ] Put BPM and key in the filename when the title doesn't already have
+      them.
+- [ ] Show the chosen format on the in-page button (for example
+      "Send to FL - WAV").
+- [ ] In-page button on Shorts.
+- [ ] Open the saved folder from the toolbar window.
+- [ ] Option for a subfolder per day or per uploader.
+- [ ] Detect BPM and key from the audio when the uploader didn't list them.
+- [ ] Start the helper on demand through Chrome Native Messaging instead of
+      at Windows login.
+- [ ] Package the helper as a single .exe with yt-dlp and ffmpeg bundled, so
+      setup needs no Python install.
+- [ ] Script the one-time setup (dependencies and the Startup shortcut).
+
+## Not planned
+
+- Publishing to the Chrome Web Store. It does not accept YouTube
+  downloaders, so BeatGrab stays a load-unpacked extension for personal use.
+- Playlists or bulk downloads. One video per click, on purpose.
