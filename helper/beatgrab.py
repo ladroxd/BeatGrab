@@ -4,16 +4,19 @@ downloads it as MP3 into your BeatGrab folder, and shows the file so you can
 drag it into FL Studio.
 
 Needs:  pip install -U "yt-dlp[default]"   and   ffmpeg + Node.js (or Deno) on PATH.
-Run:    python beatgrab.py
+Run:    python install.py once, and Chrome starts and stops this helper itself.
+        python beatgrab.py runs it by hand in a console (for troubleshooting).
 """
 import json
 import os
 import platform
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -57,7 +60,8 @@ def pick_folder():
         raise RuntimeError("The folder window is already open (check your taskbar).")
     try:
         start = OUT_DIR if OUT_DIR.is_dir() else Path.home()
-        proc = subprocess.run([sys.executable, "-c", PICKER_SCRIPT, str(start)], capture_output=True)
+        proc = subprocess.run([sys.executable, "-c", PICKER_SCRIPT, str(start)],
+                              stdin=subprocess.DEVNULL, capture_output=True)
         chosen = proc.stdout.decode("utf-8", "replace").strip()
         if proc.returncode != 0:
             raise RuntimeError("Could not open the folder window.")
@@ -118,7 +122,8 @@ def reveal(path):
             # Explorer only accepts quotes around the path itself, not around the
             # whole "/select,..." argument, so build the command line by hand.
             # (No shell involved, and Windows filenames can't contain quotes.)
-            subprocess.Popen(f'explorer /select,"{Path(path).resolve()}"')
+            subprocess.Popen(f'explorer /select,"{Path(path).resolve()}"', stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         elif system == "Darwin":
             subprocess.Popen(["open", "-R", str(path)])
         else:
@@ -172,6 +177,19 @@ def beat_details(title, description, tags):
     }
 
 
+def run_ytdlp(cmd):
+    # Force UTF-8 so titles with accents/emoji come back as a usable path.
+    # stdin is closed off so yt-dlp never touches Chrome's message pipe.
+    env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True,
+                          encoding="utf-8", errors="replace", env=env)
+    if proc.returncode != 0:
+        lines = (proc.stderr or proc.stdout).strip().splitlines()
+        errors = [l for l in lines if l.startswith("ERROR")] or lines[-2:]
+        raise RuntimeError(" | ".join(errors) or "yt-dlp failed")
+    return proc
+
+
 INFO_CACHE = {}  # url -> info dict
 
 
@@ -185,12 +203,7 @@ def info(url):
         "--no-playlist", "--skip-download", "--no-warnings", "--dump-single-json",
         url,
     ]
-    env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
-    proc = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace", env=env)
-    if proc.returncode != 0:
-        lines = (proc.stderr or proc.stdout).strip().splitlines()
-        errors = [l for l in lines if l.startswith("ERROR")] or lines[-2:]
-        raise RuntimeError(" | ".join(errors) or "yt-dlp failed")
+    proc = run_ytdlp(cmd)
     data = json.loads(proc.stdout)
     title = str(data.get("title") or "")
     result = {
@@ -222,13 +235,7 @@ def grab(url, fmt="mp3"):
         "-o", str(OUT_DIR / "%(title).150B.%(ext)s"),
         url,
     ]
-    # Force UTF-8 so titles with accents/emoji come back as a usable path.
-    env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
-    proc = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace", env=env)
-    if proc.returncode != 0:
-        lines = (proc.stderr or proc.stdout).strip().splitlines()
-        errors = [l for l in lines if l.startswith("ERROR")] or lines[-2:]
-        raise RuntimeError(" | ".join(errors) or "yt-dlp failed")
+    proc = run_ytdlp(cmd)
     lines = [l for l in proc.stdout.strip().splitlines() if l.strip()]
     if not lines:
         raise RuntimeError("yt-dlp finished but returned no file path")
@@ -348,7 +355,55 @@ def check_setup():
         print("WARNING: no Node.js or Deno found. YouTube downloads may fail. Run:  winget install OpenJS.NodeJS.LTS")
 
 
+def serve_native():
+    """Run as Chrome's native messaging host. Chrome starts us when the extension
+    connects (at browser start) and closes our stdin when it quits, which is our
+    cue to exit. stdout belongs to Chrome's message protocol, so prints go to stderr."""
+    pipe_in, pipe_out = sys.stdin.buffer, sys.stdout.buffer
+    sys.stdout = sys.stderr
+    check_setup()
+    state = {"server": None}
+
+    def serve():
+        # If another helper already has the port (a second Chrome profile, or one
+        # started by hand), wait and take over when it goes away.
+        while True:
+            try:
+                server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+            except OSError:
+                time.sleep(2)
+                continue
+            state["server"] = server
+            server.serve_forever()
+            return
+
+    threading.Thread(target=serve, daemon=True).start()
+
+    def send(message):
+        data = json.dumps(message).encode()
+        pipe_out.write(struct.pack("=I", len(data)) + data)
+        pipe_out.flush()
+
+    while True:
+        header = pipe_in.read(4)
+        if len(header) < 4:
+            break  # Chrome closed the pipe: it quit, or the extension was turned off
+        size = struct.unpack("=I", header)[0]
+        body = pipe_in.read(size)
+        if len(body) < size:
+            break
+        try:
+            message = json.loads(body)
+        except ValueError:
+            continue
+        if isinstance(message, dict) and message.get("type") == "ping":
+            send({"ok": True, "serving": state["server"] is not None, "folder": str(OUT_DIR)})
+    os._exit(0)
+
+
 if __name__ == "__main__":
+    if "--native" in sys.argv[1:]:
+        serve_native()
     check_setup()
     try:
         server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)

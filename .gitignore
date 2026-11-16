@@ -1,6 +1,10 @@
 __pycache__/
 *.pyc
 
+# Written by install.py with paths for this PC
+helper/beatgrab-host.bat
+helper/com.beatgrab.helper.json
+
 # Your own button image (optional, see README)
 extension/fl.png
 

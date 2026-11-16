@@ -2,6 +2,34 @@
 
 All notable changes to BeatGrab. Newest first.
 
+## 1.7 - 2026-11-16
+
+### Added
+- The helper starts when Chrome opens and stops when Chrome closes. It is
+  registered as the extension's native messaging host; the extension
+  connects at browser start, and Chrome closes the connection when it quits.
+- `install-beatgrab.bat` (`helper/install.py`): one-time setup that registers
+  the helper for Chrome, Edge and Chromium. `--uninstall` undoes it. It also
+  removes the old Startup shortcut if there is one.
+- If the helper stops while Chrome is open, the extension starts it again,
+  backing off if it keeps failing. Sending a beat or opening the toolbar
+  window also starts it if needed.
+- Clear errors in the badge and toolbar window: "Helper not set up" versus
+  "Helper not running".
+
+### Changed
+- The extension has a fixed ID (`key` in `manifest.json`). Updating from an
+  older version needs the old card removed and the folder loaded again.
+- `nativeMessaging` permission.
+- A second helper (another Chrome profile, or one started by hand) waits for
+  the port instead of failing, and takes over when the first one stops.
+- The helper's child processes no longer inherit its standard input and
+  output.
+
+### Removed
+- Auto-start with Windows through a Startup shortcut. Chrome starts the
+  helper now.
+
 ## Docs - 2026-11-16
 
 ### Added

@@ -69,9 +69,24 @@ async function loadDetails() {
   }
 }
 
+async function ping() {
+  return (await fetch(API + "/ping")).json();
+}
+
 async function checkHelper() {
+  let data = null;
+  let error = "";
   try {
-    const data = await (await fetch(API + "/ping")).json();
+    data = await ping();
+  } catch (e) {
+    // Normally Chrome started it already; if not, ask the background to start it.
+    $("helper-text").textContent = "Starting helper...";
+    const started = await chrome.runtime.sendMessage({ type: "start-helper" }).catch(() => null);
+    if (started && started.ok) data = await ping().catch(() => null);
+    else error = (started && started.error) || "";
+  }
+  try {
+    if (!data) throw new Error(error);
     helperUp = true;
     $("dot").className = "on";
     $("helper-text").textContent = "Helper running";
@@ -82,7 +97,7 @@ async function checkHelper() {
     $("change").hidden = true;
     $("dot").className = "off";
     $("helper-text").textContent = "Helper not running";
-    $("folder").textContent = "Start it by double-clicking start-beatgrab.bat, then reopen this window.";
+    $("folder").textContent = e.message || "Restart Chrome, or double-click start-beatgrab.bat.";
   }
   refresh();
   if (helperUp) loadDetails();

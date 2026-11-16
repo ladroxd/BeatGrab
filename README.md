@@ -65,7 +65,8 @@ To update, download it again, replace the folder, and press the reload arrow on 
 
 - Only talks to a helper on your own PC (`127.0.0.1`); nothing is sent anywhere else
 - The helper only accepts requests from the extension, so websites can't trigger downloads
-- Starts hidden with Windows if you want, and sits idle until you click
+- Starts with Chrome and stops when you close Chrome. No window, nothing to launch, and it sits idle until you click
+- If the helper ever stops while Chrome is open, BeatGrab starts it again on its own
 - One video per click. Playlists are ignored on purpose
 
 ## Requirements
@@ -88,16 +89,17 @@ To update, download it again, replace the folder, and press the reload arrow on 
    ```
 
 3. In Chrome, open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and pick the `extension` folder.
-4. Double-click `start-beatgrab.bat` to start the helper.
+4. Double-click `install-beatgrab.bat`, then close Chrome completely and open it again. From now on the helper starts and stops with Chrome.
 5. In FL Studio, open **Options > File settings > Browser extra search folders** and add `C:\Users\<you>\Music\BeatGrab`.
 6. Open a beat on YouTube and click **Send to FL**.
 
-The [setup guide](docs/SETUP.md) has the full walkthrough, including how to make the helper start hidden with Windows, plus tips and troubleshooting.
+The [setup guide](docs/SETUP.md) has the full walkthrough, plus tips and troubleshooting.
 
 ## How it works
 
 - **The extension** (`extension/`) adds the button and the toolbar window. It can't download anything itself; it sends the video's address to the helper.
 - **The helper** (`helper/beatgrab.py`) is a small Python program listening on `127.0.0.1:9835`. It checks that the address is a single YouTube video, then runs [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [ffmpeg](https://ffmpeg.org) to save the audio.
+- **Chrome runs the helper.** `install-beatgrab.bat` registers it as the extension's [native messaging host](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging). The extension connects when Chrome starts, which launches the helper, and Chrome closes that connection when it quits, which stops it.
 - **Downloads are jobs.** The helper answers at once with a job number and the extension checks on it every second, so long videos don't time out.
 - **BPM and key** come from the video's title, description and tags, matched against common ways of writing tempo and key.
 
@@ -109,6 +111,8 @@ Everything stays on your PC.
 | --- | --- |
 | Your save folder (default `Music\BeatGrab`) | The MP3 and WAV files |
 | `%APPDATA%\BeatGrab\config.json` | The save folder you picked |
+| `helper\beatgrab-host.bat`, `helper\com.beatgrab.helper.json` | Written by the installer so Chrome can start the helper |
+| Registry, `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.beatgrab.helper` (and the same for Edge and Chromium) | Tells the browser where the helper is. Removed by `install-beatgrab.bat --uninstall` |
 | Chrome's extension storage | Your MP3 or WAV preference |
 
 ## Disclaimer

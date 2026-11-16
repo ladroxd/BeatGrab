@@ -29,21 +29,15 @@ The full guide. For what BeatGrab is and what it does, see the
 
    Every beat you send now shows up in FL Studio's Browser panel, ready to
    drag into the Playlist.
-5. Optional, so you never have to start anything: press Win+R, type
-   `shell:startup`, and in that folder create a shortcut named
-   **BeatGrab helper** with this target (use your own paths):
-
-   ```
-   "C:\...\Python312\pythonw.exe" "C:\...\BeatGrab\helper\beatgrab.py"
-   ```
-
-   The helper then starts hidden every time you log in to Windows. Without
-   this, double-click `start-beatgrab.bat` each time instead.
+5. Double-click `install-beatgrab.bat`, then close Chrome completely and
+   open it again. From now on Chrome starts the helper when it opens and
+   stops it when it closes, with no window. This also works in Microsoft
+   Edge. Run it again if you move the BeatGrab folder, and run
+   `install-beatgrab.bat --uninstall` from Command Prompt to undo it.
 
 ## Every day
 
-1. With the Startup shortcut from step 5, the helper is already running,
-   hidden. There is nothing to open.
+1. Open Chrome. The helper starts with it, hidden. There is nothing to open.
 2. On a YouTube video, click **Send to FL** next to the Like button, or press
    Alt+Shift+G.
 3. Watch the toolbar icon's badge: `...` means downloading, `OK` means done,
@@ -84,13 +78,23 @@ Click the BeatGrab icon in Chrome's toolbar.
 
 ## Troubleshooting
 
-- **The badge shows `ERR`:** hover over the icon to read the reason. "Helper
-  not running" means the helper needs starting (see below).
-- **Stop the helper:** in Task Manager, end `pythonw.exe`. To stop it
-  auto-starting, delete the Startup shortcut.
-- **See what the helper is doing:** end `pythonw.exe` and double-click
-  `start-beatgrab.bat` instead. It shows a console that warns if yt-dlp,
-  ffmpeg or Node.js is missing and prints why a download failed.
+- **The badge shows `ERR`:** hover over the icon to read the reason.
+  - "Helper not set up": run `install-beatgrab.bat`, then restart Chrome.
+  - "Helper not running": restart Chrome. If the toolbar window's dot stays
+    red, Python or the BeatGrab folder may have moved; run
+    `install-beatgrab.bat` again.
+- **Updated from an older BeatGrab:** version 1.7 gave the extension a fixed
+  ID, so remove the old BeatGrab card in `chrome://extensions` and use
+  **Load unpacked** again. The MP3/WAV choice resets to MP3 once.
+- **The helper keeps running after Chrome closes:** Chrome may still be
+  running in the background. Turn off **Settings > System > Continue running
+  background apps when Google Chrome is closed**.
+- **See what the helper is doing:** close Chrome, double-click
+  `start-beatgrab.bat`, then open Chrome. The console warns if yt-dlp, ffmpeg
+  or Node.js is missing and prints why a download failed. Chrome uses this
+  helper while the console is open.
+- **Closing Chrome during a download** stops the helper; yt-dlp usually
+  still finishes saving the file.
 
 ## A note on use
 

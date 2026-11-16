@@ -8,7 +8,8 @@ have not been confirmed in everyday use.
 - [ ] Toolbar window opened from the real toolbar icon in Chrome.
 - [ ] "Change folder": pick a folder in the Windows dialog, then send a beat
       and check it lands there.
-- [ ] Helper auto-starts hidden after a Windows restart.
+- [ ] Helper starts with the real Chrome and stops when it closes (tested in
+      Chromium only), including with several Chrome profiles open.
 - [ ] In-page "Send to FL" button position when signed in, and in dark mode.
 - [ ] BPM and key on a range of real beat uploads (so far checked against
       sample titles and descriptions only).
@@ -37,11 +38,10 @@ have not been confirmed in everyday use.
 - [ ] Open the saved folder from the toolbar window.
 - [ ] Option for a subfolder per day or per uploader.
 - [ ] Detect BPM and key from the audio when the uploader didn't list them.
-- [ ] Start the helper on demand through Chrome Native Messaging instead of
-      at Windows login.
 - [ ] Package the helper as a single .exe with yt-dlp and ffmpeg bundled, so
       setup needs no Python install.
-- [ ] Script the one-time setup (dependencies and the Startup shortcut).
+- [ ] Have `install-beatgrab.bat` also install yt-dlp, ffmpeg and Node.js
+      when they are missing.
 
 ## Not planned
 
