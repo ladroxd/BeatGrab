@@ -2,6 +2,21 @@
 
 All notable changes to BeatGrab. Newest first.
 
+## 1.8 - 2026-11-23
+
+### Added
+- BPM and key in front of the saved filename: `[140 BPM - Am] Title.mp3`,
+  or just `[140 BPM]` / `[Am]` when only one is known. Nothing is added when
+  neither is. The lookup runs while the audio downloads, so it adds no wait.
+- BPM and key are also read from the uploader's own comments, pinned first.
+- When YouTube doesn't have them, BPM and key come from the BeatStars beat
+  linked in the description or a pinned comment (`bsta.rs` short links,
+  `beatstars.com/beat/...` and `player.beatstars.com` links).
+- Hovering BPM or key in the toolbar window shows where it was found.
+
+### Changed
+- "Dm me" is no longer read as the key D minor.
+
 ## 1.7 - 2026-11-16
 
 ### Added

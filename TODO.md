@@ -11,8 +11,10 @@ have not been confirmed in everyday use.
 - [ ] Helper starts with the real Chrome and stops when it closes (tested in
       Chromium only), including with several Chrome profiles open.
 - [ ] In-page "Send to FL" button position when signed in, and in dark mode.
-- [ ] BPM and key on a range of real beat uploads (so far checked against
-      sample titles and descriptions only).
+- [ ] BPM and key on a range of real beat uploads (checked against 8 real
+      uploads: title, description, pinned comment and BeatStars sources).
+- [ ] A full download with the BPM/key filename prefix (the rename was tested
+      on its own; ffmpeg wasn't available for a full run).
 - [ ] A long video (10 minutes or more) downloads without the extension
       losing track of it.
 - [ ] WAV and MP3 files show up in the FL Studio Browser and drag into the
@@ -30,8 +32,6 @@ have not been confirmed in everyday use.
 
 ## Ideas
 
-- [ ] Put BPM and key in the filename when the title doesn't already have
-      them.
 - [ ] Show the chosen format on the in-page button (for example
       "Send to FL - WAV").
 - [ ] In-page button on Shorts.

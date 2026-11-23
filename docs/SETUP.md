@@ -51,8 +51,11 @@ The full guide. For what BeatGrab is and what it does, see the
 Click the BeatGrab icon in Chrome's toolbar.
 
 - **Beat details:** thumbnail, title, uploader and length, plus BPM and key
-  when the uploader wrote them in the title, description or tags. Otherwise
-  they show "Not listed". Nothing is detected from the audio.
+  when the uploader wrote them in the title, description, their own (or
+  pinned) comment, or tags, or entered them on the BeatStars page they linked.
+  Hover a value to see where it came from. Otherwise they show "Not listed".
+  Nothing is detected from the audio. When they're known, they go in front of
+  the saved filename, like `[140 BPM - Am] Beat title.mp3`.
 - **MP3 / WAV switch:** the choice is remembered and also applies to the
   **Send to FL** button and the shortcut. WAV files are several times bigger
   and are not better quality than the MP3, because YouTube's audio is already

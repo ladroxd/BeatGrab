@@ -51,7 +51,8 @@ function showVideo() {
   $("thumb").hidden = false;
 }
 
-// BPM and key come from what the uploader wrote in the title/description.
+// BPM and key come from what the uploader wrote: title, description, their own
+// comments, or the BeatStars page they linked.
 async function loadDetails() {
   if (!videoId(tab.url)) return;
   $("details").hidden = false;
@@ -61,8 +62,11 @@ async function loadDetails() {
     if (!res.ok) throw new Error(data.error);
     if (data.title) $("video").textContent = data.title;
     $("uploader").textContent = data.uploader || "";
-    $("bpm").textContent = data.bpm || "Not listed";
-    $("key").textContent = data.key || "Not listed";
+    const foundIn = data.found_in || {};
+    for (const field of ["bpm", "key"]) {
+      $(field).textContent = data[field] || "Not listed";
+      $(field).title = foundIn[field] ? "Found in the " + foundIn[field] : "";
+    }
     $("length").textContent = clock(data.duration);
   } catch (e) {
     for (const id of ["bpm", "key", "length"]) $(id).textContent = "?";

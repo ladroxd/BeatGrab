@@ -39,7 +39,9 @@ To update, download it again, replace the folder, and press the reload arrow on 
 ### BPM and key
 
 - The toolbar window shows the beat's **BPM** and **key** before you download
-- They're read from what the uploader wrote: the title first, then the description and tags
+- They go in front of the saved filename, so beats sort and read at a glance in FL Studio: `[140 BPM - Am] (FREE) Travis Scott Type Beat.mp3`. Only what's known is added (`[140 BPM]`, `[Am]`), and nothing when neither is
+- They're read from what the uploader wrote, in this order: the title, the description, the uploader's own comments (the pinned one first), the BeatStars page linked in the description or a pinned comment, then the tags
+- Hover the BPM or key in the toolbar window to see where it was found
 - Understands the usual ways producers write them: `140 BPM`, `BPM: 92`, `F#m`, `Key: C minor`, `Bb Major`, `E flat minor`
 - Shows "Not listed" when the uploader didn't write them. Nothing is guessed from the audio
 
@@ -63,7 +65,7 @@ To update, download it again, replace the folder, and press the reload arrow on 
 
 ### Small and private
 
-- Only talks to a helper on your own PC (`127.0.0.1`); nothing is sent anywhere else
+- The extension only talks to a helper on your own PC (`127.0.0.1`). The helper only contacts YouTube, and BeatStars when the uploader linked a beat there and didn't write the BPM or key on YouTube
 - The helper only accepts requests from the extension, so websites can't trigger downloads
 - Starts with Chrome and stops when you close Chrome. No window, nothing to launch, and it sits idle until you click
 - If the helper ever stops while Chrome is open, BeatGrab starts it again on its own
@@ -101,7 +103,7 @@ The [setup guide](docs/SETUP.md) has the full walkthrough, plus tips and trouble
 - **The helper** (`helper/beatgrab.py`) is a small Python program listening on `127.0.0.1:9835`. It checks that the address is a single YouTube video, then runs [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [ffmpeg](https://ffmpeg.org) to save the audio.
 - **Chrome runs the helper.** `install-beatgrab.bat` registers it as the extension's [native messaging host](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging). The extension connects when Chrome starts, which launches the helper, and Chrome closes that connection when it quits, which stops it.
 - **Downloads are jobs.** The helper answers at once with a job number and the extension checks on it every second, so long videos don't time out.
-- **BPM and key** come from the video's title, description and tags, matched against common ways of writing tempo and key.
+- **BPM and key** come from the video's title, description, the uploader's top comments and tags, matched against common ways of writing tempo and key. When those don't have them, the helper follows a BeatStars link (`bsta.rs` short links included) and reads the BPM and key the producer entered there. It runs alongside the download, then renames the file.
 
 ## What BeatGrab stores
 

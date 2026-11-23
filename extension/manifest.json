@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "BeatGrab",
-  "version": "1.7",
+  "version": "1.8",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwvdMkwKzlKSwEXOHjHphmEsPAXit6VuSFMxGUruiScAi6BlKPrCIJkAxYo1+E6KNnVIEFhdps98We5Fl1z8Xni6dYPYfJHl+Q6CCpBe42vYirhKo2oSY2jasAkUm0YYdmF9rU8975FGgVqsqgtv2JzBgDCh3ZPamSSvnifUmvOejkSme0LaqRejiHZM88y+LpNWKneS/9XKdawd+20AktDQx+U6wXHCrcVcadf0+VzOm38hrVRWyuOCo7//aIWvKRJJvZzxDtymZUKsmXTacGqzYJQHRduX+3oEjBZfszwHWtf9E+ZGjGlinRoA2ryqUpkzEihwX4PSDlLVM8kGsrQIDAQAB",
   "description": "One click: grab the YouTube beat you're on as an MP3.",
   "permissions": ["activeTab", "notifications", "storage", "nativeMessaging"],

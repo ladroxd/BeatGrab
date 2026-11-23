@@ -17,10 +17,12 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 PORT = int(os.environ.get("BEATGRAB_PORT", "9835"))
 CONFIG_FILE = Path(os.environ.get("APPDATA", Path.home())) / "BeatGrab" / "config.json"
@@ -143,8 +145,8 @@ KEY_PATTERNS = [
     re.compile(r"\b(?i:key)\b\s*[:\-–=]?\s*(?:(?i:of)\s+)?([A-G])" + _ACC + r"\s*-?\s*((?i:major|minor|maj|min)|m)?(?![A-Za-z])"),
     # "F# minor", "C Major", "Amin"
     re.compile(r"(?<![A-Za-z])([A-G])" + _ACC + r"\s*-?\s*" + _MODE + r"(?![A-Za-z])"),
-    # "F#m", "Cm" ("Am" only when it isn't the word in "I Am")
-    re.compile(r"(?<![A-Za-z#])(?<!I )([A-G])([#b♯♭])?(m)(?![A-Za-z#])"),
+    # "F#m", "Cm" ("Am" only when it isn't the word in "I Am", "Dm" not in "Dm me")
+    re.compile(r"(?<![A-Za-z#])(?<!I )([A-G])([#b♯♭])?(m)(?![A-Za-z#])(?!\s+(?i:me|us)\b)"),
 ]
 
 
@@ -168,13 +170,126 @@ def find_key(text):
     return None
 
 
-def beat_details(title, description, tags):
-    """BPM and key as the uploader wrote them: the title wins, then the description/tags."""
-    rest = f"{description}\n{' '.join(tags)}"
-    return {
-        "bpm": find_bpm(title) or find_bpm(rest),
-        "key": find_key(title) or find_key(rest),
-    }
+def short_key(key):
+    """"A minor" -> "Am", "C# major" -> "C#", for filenames."""
+    note, mode = key.split()
+    return note + ("m" if mode == "minor" else "")
+
+
+def file_prefix(details):
+    """"[140 BPM - Am] ", "[140 BPM] ", "[Am] " or "" when neither is known."""
+    parts = []
+    if details.get("bpm"):
+        parts.append(f"{details['bpm']} BPM")
+    if details.get("key"):
+        parts.append(short_key(details["key"]))
+    return f"[{' - '.join(parts)}] " if parts else ""
+
+
+# ---- BeatStars ---------------------------------------------------------------
+# Most beat uploads link the beat on BeatStars, where the producer filled in BPM
+# and key as fields. Links are either bsta.rs short links or beatstars.com pages.
+BEATSTARS_LINK = re.compile(r"https?://(?:bsta\.rs|(?:[\w-]+\.)*beatstars\.com)/[^\s<>\"'()\[\]]*", re.I)
+TRACK_ID_PATTERNS = [
+    re.compile(r"[?&]trackId=(\d+)", re.I),                      # player.beatstars.com/?trackId=123
+    re.compile(r"/beat/(?:[^/?#\s]*-)?(\d{4,})(?=[/?#]|$)"),     # /beat/some-title-123 or /beat/123
+]
+WEB_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) BeatGrab"}
+WEB_TIMEOUT = 6
+MAX_STORE_LINKS = 3
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None  # makes urllib raise the 3xx, so we can read where it points
+
+
+def redirect_target(link):
+    """Where a short link points, without visiting the destination."""
+    opener = urllib.request.build_opener(_NoRedirect)
+    try:
+        opener.open(urllib.request.Request(link, headers=WEB_HEADERS), timeout=WEB_TIMEOUT).close()
+    except urllib.error.HTTPError as e:
+        if 300 <= e.code < 400 and e.headers.get("Location"):
+            return urljoin(link, e.headers["Location"])
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def beatstars_track_id(link):
+    """Track id from a BeatStars link, following bsta.rs short links (never other sites)."""
+    for _ in range(3):
+        for pattern in TRACK_ID_PATTERNS:
+            m = pattern.search(link)
+            if m:
+                return m.group(1)
+        if (urlparse(link).hostname or "").lower() != "bsta.rs":
+            return None  # a store front page, not a single beat
+        link = redirect_target(link)
+        if not link:
+            return None
+    return None
+
+
+def beatstars_details(text):
+    """BPM and key from the first BeatStars beat linked in `text`."""
+    links = list(dict.fromkeys(m.group(0).rstrip(".,;:!") for m in BEATSTARS_LINK.finditer(text)))
+    for link in links[:MAX_STORE_LINKS]:
+        track = beatstars_track_id(link)
+        if not track:
+            continue
+        api = f"https://main.v2.beatstars.com/beat?id={track}&fields=details"
+        try:
+            with urllib.request.urlopen(urllib.request.Request(api, headers=WEB_HEADERS),
+                                        timeout=WEB_TIMEOUT) as resp:
+                details = json.load(resp)["response"]["data"]["details"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        try:
+            bpm = round(float(details.get("bpm") or 0))
+        except (TypeError, ValueError):
+            bpm = 0
+        # key_note looks like "A_SHARP_MINOR", "D_MINOR", "E_FLAT_MAJOR"
+        m = re.fullmatch(r"([A-G])(?:_(SHARP|FLAT))?_(MAJOR|MINOR)", str(details.get("key_note") or "").upper())
+        key = f"{m.group(1)}{'#' if m.group(2) == 'SHARP' else 'b' if m.group(2) else ''} {m.group(3).lower()}" if m else None
+        if 40 <= bpm <= 300 or key:
+            return {"bpm": bpm if 40 <= bpm <= 300 else None, "key": key}
+    return None
+
+
+def uploader_comments(comments):
+    """Top-level comments by the uploader, plus the pinned one, pinned first."""
+    picked = [c for c in comments or [] if isinstance(c, dict)
+              and (c.get("author_is_uploader") or c.get("is_pinned")) and c.get("parent", "root") == "root"]
+    picked.sort(key=lambda c: not c.get("is_pinned"))
+    return [str(c.get("text") or "") for c in picked]
+
+
+def beat_details(title, description, tags, comments=()):
+    """BPM and key as the uploader wrote them. Looks in order at the title, the
+    description, the uploader's own comments (pinned first), the BeatStars page
+    linked in either, and the tags. Each value comes from the first place that has it."""
+    comment_text = "\n".join(comments)
+    sources = [
+        ("title", lambda: title),
+        ("description", lambda: description),
+        ("uploader's comment", lambda: comment_text),
+        ("BeatStars page", lambda: beatstars_details(f"{description}\n{comment_text}")),
+        ("tags", lambda: ", ".join(tags)),
+    ]
+    found = {"bpm": None, "key": None, "found_in": {}}
+    for name, get in sources:
+        if found["bpm"] and found["key"]:
+            break
+        value = get()
+        if isinstance(value, str):
+            value = {"bpm": find_bpm(value), "key": find_key(value)}
+        for field in ("bpm", "key"):
+            if not found[field] and value and value.get(field):
+                found[field] = value[field]
+                found["found_in"][field] = name
+    return found
 
 
 def run_ytdlp(cmd):
@@ -191,35 +306,72 @@ def run_ytdlp(cmd):
 
 
 INFO_CACHE = {}  # url -> info dict
+INFO_LOCKS = {}  # url -> lock, so the popup and a download don't look up the same video twice
+INFO_LOCKS_GUARD = threading.Lock()
+# The top comments are enough to catch the uploader's pinned one; no replies.
+COMMENT_ARGS = ["--write-comments", "--extractor-args", "youtube:max_comments=20,20,0,0;comment_sort=top"]
 
 
 def info(url):
     """Title, uploader, length, BPM and key for a video, without downloading it."""
-    if url in INFO_CACHE:
-        return INFO_CACHE[url]
-    cmd = [
-        sys.executable, "-m", "yt_dlp",
-        *js_runtime_args(),
-        "--no-playlist", "--skip-download", "--no-warnings", "--dump-single-json",
-        url,
-    ]
-    proc = run_ytdlp(cmd)
-    data = json.loads(proc.stdout)
-    title = str(data.get("title") or "")
-    result = {
-        "title": title,
-        "uploader": str(data.get("uploader") or data.get("channel") or ""),
-        "duration": data.get("duration"),
-        **beat_details(title, str(data.get("description") or ""), [str(t) for t in data.get("tags") or []]),
-    }
-    if len(INFO_CACHE) >= MAX_JOBS:
-        INFO_CACHE.pop(next(iter(INFO_CACHE)))
-    INFO_CACHE[url] = result
-    return result
+    with INFO_LOCKS_GUARD:
+        lock = INFO_LOCKS.setdefault(url, threading.Lock())
+    with lock:
+        if url in INFO_CACHE:
+            return INFO_CACHE[url]
+        cmd = [
+            sys.executable, "-m", "yt_dlp",
+            *js_runtime_args(),
+            "--no-playlist", "--skip-download", "--no-warnings", *COMMENT_ARGS, "--dump-single-json",
+            url,
+        ]
+        proc = run_ytdlp(cmd)
+        data = json.loads(proc.stdout)
+        title = str(data.get("title") or "")
+        result = {
+            "title": title,
+            "uploader": str(data.get("uploader") or data.get("channel") or ""),
+            "duration": data.get("duration"),
+            **beat_details(title, str(data.get("description") or ""), [str(t) for t in data.get("tags") or []],
+                           uploader_comments(data.get("comments"))),
+        }
+        with INFO_LOCKS_GUARD:
+            while len(INFO_CACHE) >= MAX_JOBS:
+                old = next(iter(INFO_CACHE))
+                INFO_CACHE.pop(old)
+                INFO_LOCKS.pop(old, None)
+            INFO_CACHE[url] = result
+        return result
+
+
+def add_prefix(path, details):
+    """Rename "Title.mp3" to "[140 BPM - Am] Title.mp3". Keeps the old name if that fails."""
+    prefix = file_prefix(details)
+    if not prefix:
+        return path
+    target = path.with_name(prefix + path.name)
+    try:
+        os.replace(path, target)  # replaces an earlier download of the same beat
+    except OSError as e:
+        print("Could not add BPM/key to the filename:", e)
+        return path
+    return target
 
 
 def grab(url, fmt="mp3"):
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    # Look up BPM and key while the audio downloads (usually cached from the
+    # toolbar window already), then put them in front of the filename.
+    details = {}
+
+    def lookup():
+        try:
+            details.update(info(url))
+        except Exception as e:
+            print("No BPM/key for the filename:", e)
+
+    lookup_thread = threading.Thread(target=lookup, daemon=True)
+    lookup_thread.start()
     if fmt == "wav":
         # WAV can't hold cover art, so no thumbnail there.
         audio_args = ["-x", "--audio-format", "wav", "--embed-metadata"]
@@ -242,7 +394,8 @@ def grab(url, fmt="mp3"):
     path = Path(lines[-1])
     if not path.is_file():
         raise RuntimeError(f"yt-dlp reported a file that isn't there: {path}")
-    return path
+    lookup_thread.join(timeout=60)
+    return add_prefix(path, dict(details))
 
 
 def run_job(job_id, url, fmt):
