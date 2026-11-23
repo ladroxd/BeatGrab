@@ -13,8 +13,12 @@ have not been confirmed in everyday use.
 - [ ] In-page "Send to FL" button position when signed in, and in dark mode.
 - [ ] BPM and key on a range of real beat uploads (checked against 8 real
       uploads: title, description, pinned comment and BeatStars sources).
-- [ ] A full download with the BPM/key filename prefix (the rename was tested
-      on its own; ffmpeg wasn't available for a full run).
+- [ ] Send to FL from Chrome saves the file with the BPM/key prefix. A full
+      download through the helper does (`[146 BPM - A#m] ...mp3`, from
+      BeatStars); not yet confirmed from a click in Chrome.
+- [ ] A beat sends without "ffmpeg not found" when ffmpeg was installed
+      while Chrome was open (the helper now finds it with Chrome's old PATH).
+- [ ] Hovering BPM or key in the toolbar window shows where it was found.
 - [ ] A long video (10 minutes or more) downloads without the extension
       losing track of it.
 - [ ] WAV and MP3 files show up in the FL Studio Browser and drag into the
@@ -42,6 +46,14 @@ have not been confirmed in everyday use.
       setup needs no Python install.
 - [ ] Have `install-beatgrab.bat` also install yt-dlp, ffmpeg and Node.js
       when they are missing.
+- [ ] Show in the toolbar window when yt-dlp, ffmpeg or Node.js is missing,
+      instead of only failing when a beat is sent.
+- [ ] Say "Run install-beatgrab.bat again" when the Python the helper was
+      registered with is gone (for example after a Python upgrade), instead
+      of "Helper not running".
+- [ ] Read BPM and key from Traktrain and Airbit beat links, like BeatStars.
+- [ ] Leave the filename alone when the title already starts with the BPM
+      and key.
 
 ## Not planned
 

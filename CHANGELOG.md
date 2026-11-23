@@ -15,12 +15,25 @@ All notable changes to BeatGrab. Newest first.
 - Hovering BPM or key in the toolbar window shows where it was found.
 
 ### Changed
+- Looking up a beat also reads its top 20 comments, in the same yt-dlp call.
+  That adds about a second before BPM and key show in the toolbar window.
+- The helper now contacts BeatStars as well as YouTube, only when a BeatStars
+  beat is linked and YouTube doesn't list the BPM or key. The README's
+  privacy section says so.
 - "Dm me" is no longer read as the key D minor.
+- The toolbar window and a download no longer look up the same video twice
+  when both ask at once.
 
 ### Fixed
 - ffmpeg or Node.js installed while Chrome was open is found without
   restarting Chrome. The helper reads the current PATH from Windows, and
   looks in winget's ffmpeg folder too.
+
+### Notes
+- After reinstalling or upgrading Python, run `install-beatgrab.bat` again
+  and install yt-dlp for the new Python (`pip install -U "yt-dlp[default]"`).
+  The helper is registered with one Python install, and Chrome reports
+  "Helper not running" when that install is gone.
 
 ## 1.7 - 2026-11-16
 
