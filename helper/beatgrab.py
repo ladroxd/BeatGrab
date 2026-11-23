@@ -106,6 +106,38 @@ def clean_url(raw):
     return f"https://www.youtube.com/watch?v={vid}"
 
 
+def refresh_path():
+    """Chrome hands us the PATH it had when it started, so a tool installed since
+    (ffmpeg, Node.js) is missing until Chrome restarts. Add the current PATH
+    from Windows, and winget's ffmpeg folder in case PATH wasn't updated."""
+    if platform.system() != "Windows":
+        return
+    import glob
+    import winreg
+    extra = []
+    for root, key in ((winreg.HKEY_CURRENT_USER, r"Environment"),
+                      (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment")):
+        try:
+            with winreg.OpenKey(root, key) as k:
+                extra += os.path.expandvars(str(winreg.QueryValueEx(k, "Path")[0])).split(os.pathsep)
+        except OSError:
+            pass
+    if not shutil.which("ffmpeg", path=os.pathsep.join(extra + [os.environ.get("PATH", "")])):
+        packages = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages"
+        extra += sorted({str(Path(f).parent) for f in glob.glob(str(packages / "*FFmpeg*" / "**" / "ffmpeg.exe"),
+                                                                    recursive=True)})
+    current = os.environ.get("PATH", "").split(os.pathsep)
+    seen = {p.lower().rstrip("\\") for p in current if p}
+    for p in extra:
+        if p and p.lower().rstrip("\\") not in seen:
+            current.append(p)
+            seen.add(p.lower().rstrip("\\"))
+    os.environ["PATH"] = os.pathsep.join(current)
+
+
+refresh_path()
+
+
 def js_runtime_args():
     """yt-dlp needs a JavaScript runtime for YouTube. Deno is picked up on its
     own; Node has to be enabled explicitly."""

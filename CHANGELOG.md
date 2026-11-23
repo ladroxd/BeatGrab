@@ -17,6 +17,11 @@ All notable changes to BeatGrab. Newest first.
 ### Changed
 - "Dm me" is no longer read as the key D minor.
 
+### Fixed
+- ffmpeg or Node.js installed while Chrome was open is found without
+  restarting Chrome. The helper reads the current PATH from Windows, and
+  looks in winget's ffmpeg folder too.
+
 ## 1.7 - 2026-11-16
 
 ### Added
